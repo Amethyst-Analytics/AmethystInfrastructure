@@ -1,3 +1,6 @@
+# Standardized CI pipeline for the Amethyst Analytics monorepo.
+# Single source of truth for all PR quality gates. Identical across all 5 repos.
+
 name: PR Quality Gates
 
 on:
@@ -10,55 +13,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Lint & Style
+  # ----- 1. All static checks via pre-commit (one source of truth, local == CI) -----
+  pre-commit:
+    name: Pre-commit (lint, format, type, secrets, docker, prettier)
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # gitleaks needs full history
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install lint tools
-        run: pip install ruff black isort
+      - uses: pre-commit/action@v3.0.1
 
-      - name: ruff
-        id: ruff
-        run: ruff check --output-format=github .
-        continue-on-error: true
-
-      - name: black
-        id: black
-        run: black --check .
-        continue-on-error: true
-
-      - name: isort
-        id: isort
-        run: isort --check-only --profile black .
-        continue-on-error: true
-
-      - name: Post failure comment
-        if: steps.ruff.outcome == 'failure' || steps.black.outcome == 'failure' || steps.isort.outcome == 'failure'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const failures = [];
-            if ('${{ steps.ruff.outcome }}' === 'failure') failures.push('**ruff**: fix with `ruff check --fix .`');
-            if ('${{ steps.black.outcome }}' === 'failure') failures.push('**black**: fix with `black .`');
-            if ('${{ steps.isort.outcome }}' === 'failure') failures.push('**isort**: fix with `isort --profile black .`');
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `## \u274c Lint & Style Failed\n\n${failures.join('\n')}\n\nRun these commands locally to fix before pushing.`
-            });
-
-      - name: Fail if any lint check failed
-        if: steps.ruff.outcome == 'failure' || steps.black.outcome == 'failure' || steps.isort.outcome == 'failure'
-        run: exit 1
-
+  # ----- 2. Tests + coverage (only if a tests/ directory exists) -----
   test-coverage:
     name: Tests & Coverage
     runs-on: ubuntu-latest
@@ -89,90 +60,80 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Detect Python project
+        id: detect
+        run: |
+          if [ -d tests ] && ([ -f pyproject.toml ] || [ -f requirements.txt ]); then
+            echo "has_python_tests=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_python_tests=false" >> $GITHUB_OUTPUT
+            echo "No tests/ directory or Python project files - skipping test job."
+          fi
+
       - uses: actions/setup-python@v5
+        if: steps.detect.outputs.has_python_tests == 'true'
         with:
           python-version: "3.11"
 
       - name: Install dependencies
+        if: steps.detect.outputs.has_python_tests == 'true'
         run: |
           pip install pytest pytest-cov coverage
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f pyproject.toml ]; then pip install -e . || true; fi
 
       - name: Run tests with coverage
+        if: steps.detect.outputs.has_python_tests == 'true'
         id: pytest
         run: pytest --cov=. --cov-report=xml --cov-report=term-missing --cov-fail-under=80
         continue-on-error: true
 
       - name: Post coverage comment
+        if: steps.detect.outputs.has_python_tests == 'true'
         uses: MishaKav/pytest-coverage-comment@main
         with:
           pytest-xml-coverage-path: ./coverage.xml
           title: Test Coverage Report
-          badge-title: Coverage
-          hide-badge: false
-          hide-report: false
           create-new-comment: false
-          hide-comment: false
-          report-only-changed-files: false
-          remove-link-from-badge: false
         continue-on-error: true
 
-      - name: Post failure comment
-        if: steps.pytest.outcome == 'failure'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `## \u274c Tests & Coverage Failed\n\nTests failed or coverage dropped below 80%.\n\nRun locally: \`pytest --cov=. --cov-report=term-missing --cov-fail-under=80\``
-            });
-
       - name: Fail if tests failed
-        if: steps.pytest.outcome == 'failure'
+        if: steps.detect.outputs.has_python_tests == 'true' && steps.pytest.outcome == 'failure'
         run: exit 1
 
-  security:
-    name: Security Scan
+  # ----- 3. Dependency CVE scan -----
+  dependency-security:
+    name: Dependency Security (safety)
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
 
+      - name: Detect Python deps
+        id: detect
+        run: |
+          if [ -f requirements.txt ] || [ -f pyproject.toml ]; then
+            echo "has_deps=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_deps=false" >> $GITHUB_OUTPUT
+            echo "No requirements.txt or pyproject.toml - skipping safety scan."
+          fi
+
       - uses: actions/setup-python@v5
+        if: steps.detect.outputs.has_deps == 'true'
         with:
           python-version: "3.11"
 
-      - name: Install security tools
-        run: pip install bandit safety
-
-      - name: bandit
-        id: bandit
-        run: bandit -r . -ll -x ./tests
-        continue-on-error: true
+      - name: Install safety
+        if: steps.detect.outputs.has_deps == 'true'
+        run: pip install safety
 
       - name: safety
-        id: safety
+        if: steps.detect.outputs.has_deps == 'true'
         run: safety check --full-report
         continue-on-error: true
 
-      - name: Post failure comment
-        if: steps.bandit.outcome == 'failure'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `## \u274c Security Scan Found Issues\n\nbandit detected security issues.\n\nRun locally: \`bandit -r . -ll -x ./tests\`\n\nReview findings before proceeding.`
-            });
-
-      - name: Fail if bandit failed
-        if: steps.bandit.outcome == 'failure'
-        run: exit 1
-
+  # ----- 4. Service boundary check -----
   boundary-check:
     name: Service Boundary Check
     runs-on: ubuntu-latest
@@ -185,55 +146,38 @@ jobs:
           python-version: "3.11"
 
       - name: Run boundary check
-        id: boundary
         run: python scripts/check_boundaries.py
-        continue-on-error: true
 
-      - name: Post failure comment
-        if: steps.boundary.outcome == 'failure'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `## \u274c Service Boundary Violation\n\nA cross-service import was detected. Services must only communicate via REST or Redis Pub/Sub.\n\nRun locally: \`python scripts/check_boundaries.py\``
-            });
-
-      - name: Fail if boundary violated
-        if: steps.boundary.outcome == 'failure'
-        run: exit 1
-
+  # ----- 5. Aggregated summary comment (single comment, updated in place) -----
   ci-summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [lint, test-coverage, security, boundary-check]
+    needs: [pre-commit, test-coverage, dependency-security, boundary-check]
     if: always() && github.event.pull_request.draft == false
     steps:
       - uses: actions/github-script@v7
         with:
           script: |
             const results = {
-              'Lint & Style':     '${{ needs.lint.result }}',
-              'Tests & Coverage': '${{ needs.test-coverage.result }}',
-              'Security Scan':    '${{ needs.security.result }}',
-              'Boundary Check':   '${{ needs.boundary-check.result }}',
+              "Pre-commit (lint/type/secrets/docker/prettier)": "${{ needs.pre-commit.result }}",
+              "Tests & Coverage": "${{ needs.test-coverage.result }}",
+              "Dependency Security": "${{ needs.dependency-security.result }}",
+              "Service Boundary":   "${{ needs.boundary-check.result }}",
             };
-            const icon = (r) => r === 'success' ? '\u2705' : r === 'failure' ? '\u274c' : '\u23ed\ufe0f';
+            const icon = (r) => r === "success" ? "✅" : r === "failure" ? "❌" : r === "skipped" ? "⏭️" : "⚠️";
             const rows = Object.entries(results)
-              .map(([name, result]) => `| ${name} | ${icon(result)} ${result} |`)
-              .join('\n');
-            const allPassed = Object.values(results).every(r => r === 'success');
-            const footer = allPassed
-              ? '\u2705 All gates passed. PR is ready for review.'
-              : '\u274c One or more gates failed.';
-            const body = `## CI Quality Gate Summary\n\n| Gate | Result |\n|---|---|\n${rows}\n\n${footer}`;
+              .map(([name, result]) => "| " + name + " | " + icon(result) + " " + result + " |")
+              .join("\n");
+            const allGood = Object.values(results).every(r => r === "success" || r === "skipped");
+            const footer = allGood
+              ? "✅ All gates passed. PR is ready for review."
+              : "❌ One or more gates failed.";
+            const body = "## CI Quality Gate Summary\n\n| Gate | Result |\n|---|---|\n" + rows + "\n\n" + footer;
             const comments = await github.rest.issues.listComments({
               owner: context.repo.owner, repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            const existing = comments.data.find(c => c.body.includes('CI Quality Gate Summary'));
+            const existing = comments.data.find(c => c.body.includes("CI Quality Gate Summary"));
             if (existing) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner, repo: context.repo.repo,

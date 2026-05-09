@@ -1,0 +1,25 @@
+# Generated / vendor
+node_modules/
+.venv/
+venv/
+__pycache__/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Lock files
+poetry.lock
+package-lock.json
+
+# OpenAPI generated client
+openapi.json
+openapi.yaml
+amethyst_client/
+
+# CHANGELOGs and LICENSEs (preserve formatting)
+CHANGELOG.md
+LICENSE
+LICENSE.md
