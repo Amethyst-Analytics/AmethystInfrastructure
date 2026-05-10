@@ -1,0 +1,88 @@
+# Standardized pre-commit config for the Amethyst Analytics monorepo.
+# Identical across all 5 repos. Hooks scoped by file pattern so they no-op
+# on repos that do not contain that file type (e.g. Python hooks skip in
+# AmethystInfrastructure).
+
+repos:
+  # ----- Generic file hygiene & safety nets -----
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ["--allow-multiple-documents"]
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: no-commit-to-branch
+        args: ["--branch", "main"]
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  # ----- Secret scanning (full git history) -----
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  # ----- Python: format -----
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+        files: \.py$
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--profile", "black"]
+        files: \.py$
+
+  # ----- Python: lint -----
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+        files: \.py$
+
+  # ----- Python: strict type checking (src/ only — tests can be looser) -----
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        args: ["--strict", "--ignore-missing-imports", "--python-version", "3.11"]
+        files: ^src/.*\.py$
+        additional_dependencies:
+          - pydantic>=2.0
+          - types-redis
+
+  # ----- Python: security (src/ only) -----
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.8
+    hooks:
+      - id: bandit
+        args: ["-ll", "-x", "tests"]
+        files: ^src/.*\.py$
+
+  # ----- Dockerfile linting -----
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.13.0-beta
+    hooks:
+      - id: hadolint-docker
+        files: (Dockerfile|\.dockerfile)$
+
+  # ----- YAML / JSON / Markdown formatting -----
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0-alpha.8
+    hooks:
+      - id: prettier
+        types_or: [yaml, json, markdown]
+        # GitHub Actions workflow YAML uses GH-specific syntax that prettier
+        # sometimes rewrites in ways the GH parser dislikes. Skip them.
+        exclude: ^\.github/workflows/

@@ -1,0 +1,21 @@
+# Custom gitleaks config for Amethyst Analytics.
+# Extends the default rules with project-specific allowlists.
+
+title = "Amethyst Analytics gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist - test fixtures, examples, and placeholders"
+paths = [
+    '''(.*?)test(.*?)\.py''',
+    '''(.*?)example(.*?)''',
+    '''\.env\.example''',
+    '''docs/.*''',
+]
+regexes = [
+    # Allow obvious placeholders
+    '''(?i)(changeme|placeholder|your[-_]?(token|secret|key|password))''',
+    '''(?i)test[-_]?(jwt[-_]?secret|password|token)''',
+]

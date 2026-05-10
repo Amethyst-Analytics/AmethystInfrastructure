@@ -12,13 +12,13 @@ AmethystInfrastructure manages **deployment** of the Amethyst stack onto the Ras
 
 ## Stack
 
-| Item | Detail |
-|---|---|
-| Language | Bash (shell scripts) |
-| Orchestration | Docker Compose v2 |
-| Target runtime | Raspberry Pi 4, ARM64, Raspberry Pi OS 64-bit (Bookworm) |
-| Container registry | GHCR (`ghcr.io/amethyst-analytics/`) |
-| Config format | `.env` files (never committed with real secrets) |
+| Item               | Detail                                                   |
+| ------------------ | -------------------------------------------------------- |
+| Language           | Bash (shell scripts)                                     |
+| Orchestration      | Docker Compose v2                                        |
+| Target runtime     | Raspberry Pi 4, ARM64, Raspberry Pi OS 64-bit (Bookworm) |
+| Container registry | GHCR (`ghcr.io/amethyst-analytics/`)                     |
+| Config format      | `.env` files (never committed with real secrets)         |
 
 ---
 
