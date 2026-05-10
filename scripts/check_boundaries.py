@@ -2,7 +2,6 @@ import ast
 import sys
 from pathlib import Path
 
-
 FORBIDDEN_BY_PACKAGE: dict[str, list[str]] = {
     "market_monitor": ["amethyst_server", "amethyst_analytics", "amethyst_core_direct"],
     "amethyst_server": ["market_monitor", "amethyst_analytics"],
